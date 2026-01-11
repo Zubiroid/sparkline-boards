@@ -137,10 +137,12 @@ export default function Editor() {
       title: title.trim(),
       description: description.trim(),
       content,
+      body: content, // Map content to body for backend compatibility
       status,
       platform,
       priority,
       tags,
+      authorId: '', // Will be set by backend based on authenticated user
       scheduledDate: scheduledDate ? new Date(scheduledDate).toISOString() : undefined,
       deadlineDate: deadlineDate ? new Date(deadlineDate).toISOString() : undefined,
       publishedDate: existingItem?.publishedDate,
