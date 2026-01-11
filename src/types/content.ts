@@ -1,24 +1,43 @@
+// Content Domain Models - Frontend Contracts
+// These types define the expected shape of data from the backend
+
 export type ContentStatus = 'idea' | 'draft' | 'scheduled' | 'published';
 
 export type ContentPlatform = 'blog' | 'twitter' | 'linkedin' | 'youtube' | 'instagram' | 'newsletter';
 
 export type ContentPriority = 'low' | 'medium' | 'high';
 
+export interface Content {
+  id: string;
+  title: string;
+  body: string;
+  status: ContentStatus;
+  tags: string[];
+  authorId: string;
+  createdAt: string;
+  updatedAt: string;
+  publishAt?: string;
+}
+
+// Extended content with UI-specific fields (used in local storage for demo)
 export interface ContentItem {
   id: string;
   title: string;
   description?: string;
-  content?: string;
+  content?: string; // Editor body content
+  body: string; // Backend-compatible body field
   status: ContentStatus;
   platform: ContentPlatform;
   priority: ContentPriority;
   tags: string[];
+  authorId: string;
   scheduledDate?: string;
   deadlineDate?: string;
   publishedDate?: string;
   completedAt?: string;
   createdAt: string;
   updatedAt: string;
+  publishAt?: string;
 }
 
 export interface ContentStats {
