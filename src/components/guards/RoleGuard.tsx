@@ -1,43 +1,28 @@
 import { ReactNode } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
-import { UserRole } from '../../types/user';
+import { useAuth, AppRole } from '../../contexts/AuthContext';
 
 interface RoleGuardProps {
   children: ReactNode;
-  allowedRoles: UserRole[];
+  allowedRoles: AppRole[];
 }
 
 export function RoleGuard({ children, allowedRoles }: RoleGuardProps) {
-  const { user, isAuthenticated, isServiceAvailable } = useAuth();
+  const { isAuthenticated, roles, hasRole, isLoading } = useAuth();
 
-  // If backend is not available, show appropriate message
-  if (!isServiceAvailable) {
+  // Show loading state
+  if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <div className="card p-8 max-w-md text-center">
-          <div className="w-16 h-16 bg-warning-light rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-warning">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 8v4M12 16h.01" />
-            </svg>
-          </div>
-          <h2 className="heading-3 mb-2">Role-Based Access</h2>
-          <p className="text-text-secondary mb-6">
-            This section requires role verification which depends on a backend service that is not yet implemented.
-          </p>
-          <p className="text-sm text-text-muted mb-6">
-            Required roles: {allowedRoles.join(', ')}
-          </p>
-          <a href="/" className="btn btn-primary btn-md">
-            Return to Home
-          </a>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-text-secondary text-sm">Loading...</p>
         </div>
       </div>
     );
   }
 
   // Check if user is authenticated
-  if (!isAuthenticated || !user) {
+  if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="card p-8 max-w-md text-center">
@@ -59,8 +44,10 @@ export function RoleGuard({ children, allowedRoles }: RoleGuardProps) {
     );
   }
 
-  // Check if user has required role
-  if (!allowedRoles.includes(user.role)) {
+  // Check if user has any of the required roles
+  const hasRequiredRole = allowedRoles.some(role => hasRole(role));
+  
+  if (!hasRequiredRole) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="card p-8 max-w-md text-center">
@@ -75,7 +62,7 @@ export function RoleGuard({ children, allowedRoles }: RoleGuardProps) {
             You do not have permission to access this page.
           </p>
           <p className="text-sm text-text-muted mb-6">
-            Your role: <span className="font-medium">{user.role}</span>
+            Your role: <span className="font-medium">{roles.join(', ') || 'user'}</span>
             <br />
             Required: <span className="font-medium">{allowedRoles.join(' or ')}</span>
           </p>

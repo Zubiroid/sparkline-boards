@@ -1,166 +1,225 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { User, AuthState } from '../types/user';
-import { authService, isAuthServiceImplemented, LoginCredentials, RegisterCredentials } from '../services/auth.service';
+import { supabase } from '@/integrations/supabase/client';
+import { Session, User as SupabaseUser } from '@supabase/supabase-js';
+
+export type AppRole = 'admin' | 'moderator' | 'user';
+
+export interface Profile {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string;
+  avatar_url: string | null;
+  bio: string | null;
+  timezone: string;
+  theme: 'light' | 'dark' | 'system';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthState {
+  user: SupabaseUser | null;
+  profile: Profile | null;
+  roles: AppRole[];
+  session: Session | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  error: string | null;
+}
 
 interface AuthContextValue extends AuthState {
-  login: (credentials: LoginCredentials) => Promise<void>;
-  register: (credentials: RegisterCredentials) => Promise<void>;
-  logout: () => Promise<void>;
-  forgotPassword: (email: string) => Promise<void>;
-  resetPassword: (token: string, newPassword: string) => Promise<void>;
-  updateProfile: (updates: Partial<User>) => Promise<void>;
-  isServiceAvailable: boolean;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  signInWithGitHub: () => Promise<void>;
+  signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  updateProfile: (updates: Partial<Profile>) => Promise<void>;
+  hasRole: (role: AppRole) => boolean;
+  isAdmin: boolean;
+  isModerator: boolean;
   clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export function AuthProvider({ children }: AuthProviderProps) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
+    profile: null,
+    roles: [],
+    session: null,
     isAuthenticated: false,
     isLoading: true,
     error: null,
   });
 
-  const isServiceAvailable = isAuthServiceImplemented();
+  // Fetch profile and roles for a user
+  const fetchUserData = useCallback(async (userId: string) => {
+    try {
+      // Fetch profile
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
 
-  // Check for existing session on mount
+      if (profileError) throw profileError;
+
+      // Fetch roles
+      const { data: userRoles, error: rolesError } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId);
+
+      if (rolesError) throw rolesError;
+
+      const roles = (userRoles || []).map(r => r.role as AppRole);
+
+      return { profile: profile as Profile | null, roles };
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+      return { profile: null, roles: [] };
+    }
+  }, []);
+
+  // Set up auth state listener
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const user = await authService.getCurrentUser();
-        setState({
-          user,
-          isAuthenticated: !!user,
-          isLoading: false,
-          error: null,
-        });
-      } catch {
-        setState({
-          user: null,
-          isAuthenticated: false,
-          isLoading: false,
-          error: null,
-        });
+    // Set up listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (session?.user) {
+          // Use setTimeout to avoid potential race conditions
+          setTimeout(async () => {
+            const { profile, roles } = await fetchUserData(session.user.id);
+            setState({
+              user: session.user,
+              profile,
+              roles,
+              session,
+              isAuthenticated: true,
+              isLoading: false,
+              error: null,
+            });
+          }, 0);
+        } else {
+          setState({
+            user: null,
+            profile: null,
+            roles: [],
+            session: null,
+            isAuthenticated: false,
+            isLoading: false,
+            error: null,
+          });
+        }
       }
-    };
+    );
 
-    checkAuth();
-  }, []);
+    // THEN check for existing session
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const { profile, roles } = await fetchUserData(session.user.id);
+        setState({
+          user: session.user,
+          profile,
+          roles,
+          session,
+          isAuthenticated: true,
+          isLoading: false,
+          error: null,
+        });
+      } else {
+        setState(prev => ({ ...prev, isLoading: false }));
+      }
+    });
 
-  const login = useCallback(async (credentials: LoginCredentials) => {
+    return () => subscription.unsubscribe();
+  }, [fetchUserData]);
+
+  const signIn = useCallback(async (email: string, password: string) => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
-    try {
-      const response = await authService.login(credentials);
-      setState({
-        user: response.user,
-        isAuthenticated: true,
-        isLoading: false,
-        error: null,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Login failed';
-      setState(prev => ({
-        ...prev,
-        isLoading: false,
-        error: message,
-      }));
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setState(prev => ({ ...prev, isLoading: false, error: error.message }));
       throw error;
     }
   }, []);
 
-  const register = useCallback(async (credentials: RegisterCredentials) => {
+  const signUp = useCallback(async (email: string, password: string, name: string) => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
-    try {
-      const response = await authService.register(credentials);
-      setState({
-        user: response.user,
-        isAuthenticated: true,
-        isLoading: false,
-        error: null,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Registration failed';
-      setState(prev => ({
-        ...prev,
-        isLoading: false,
-        error: message,
-      }));
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: window.location.origin,
+        data: { full_name: name },
+      },
+    });
+    if (error) {
+      setState(prev => ({ ...prev, isLoading: false, error: error.message }));
       throw error;
     }
   }, []);
 
-  const logout = useCallback(async () => {
-    setState(prev => ({ ...prev, isLoading: true }));
-    try {
-      await authService.logout();
-    } finally {
-      setState({
-        user: null,
-        isAuthenticated: false,
-        isLoading: false,
-        error: null,
-      });
-    }
-  }, []);
-
-  const forgotPassword = useCallback(async (email: string) => {
+  const signInWithGoogle = useCallback(async () => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
-    try {
-      await authService.forgotPassword(email);
-      setState(prev => ({ ...prev, isLoading: false }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Password reset request failed';
-      setState(prev => ({
-        ...prev,
-        isLoading: false,
-        error: message,
-      }));
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/app` },
+    });
+    if (error) {
+      setState(prev => ({ ...prev, isLoading: false, error: error.message }));
       throw error;
     }
   }, []);
 
-  const resetPassword = useCallback(async (token: string, newPassword: string) => {
+  const signInWithGitHub = useCallback(async () => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
-    try {
-      await authService.resetPassword(token, newPassword);
-      setState(prev => ({ ...prev, isLoading: false }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Password reset failed';
-      setState(prev => ({
-        ...prev,
-        isLoading: false,
-        error: message,
-      }));
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: { redirectTo: `${window.location.origin}/app` },
+    });
+    if (error) {
+      setState(prev => ({ ...prev, isLoading: false, error: error.message }));
       throw error;
     }
   }, []);
 
-  const updateProfile = useCallback(async (updates: Partial<User>) => {
-    if (!state.user) return;
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
+  }, []);
+
+  const resetPassword = useCallback(async (email: string) => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
-    try {
-      const updatedUser = await authService.updateProfile(state.user.id, updates);
-      setState(prev => ({
-        ...prev,
-        user: updatedUser,
-        isLoading: false,
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Profile update failed';
-      setState(prev => ({
-        ...prev,
-        isLoading: false,
-        error: message,
-      }));
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    if (error) {
+      setState(prev => ({ ...prev, isLoading: false, error: error.message }));
       throw error;
     }
-  }, [state.user]);
+    setState(prev => ({ ...prev, isLoading: false }));
+  }, []);
+
+  const updateProfile = useCallback(async (updates: Partial<Profile>) => {
+    if (!state.user) throw new Error('Not authenticated');
+    
+    const { error } = await supabase
+      .from('profiles')
+      .update(updates)
+      .eq('user_id', state.user.id);
+
+    if (error) throw error;
+
+    // Refresh profile data
+    const { profile, roles } = await fetchUserData(state.user.id);
+    setState(prev => ({ ...prev, profile, roles }));
+  }, [state.user, fetchUserData]);
+
+  const hasRole = useCallback((role: AppRole) => {
+    return state.roles.includes(role);
+  }, [state.roles]);
 
   const clearError = useCallback(() => {
     setState(prev => ({ ...prev, error: null }));
@@ -170,13 +229,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     <AuthContext.Provider
       value={{
         ...state,
-        login,
-        register,
-        logout,
-        forgotPassword,
+        signIn,
+        signUp,
+        signInWithGoogle,
+        signInWithGitHub,
+        signOut,
         resetPassword,
         updateProfile,
-        isServiceAvailable,
+        hasRole,
+        isAdmin: state.roles.includes('admin'),
+        isModerator: state.roles.includes('moderator'),
         clearError,
       }}
     >
