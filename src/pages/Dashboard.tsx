@@ -8,12 +8,35 @@ import { StatusDistribution } from '../components/dashboard/StatusDistribution';
 import { RiskIndicators } from '../components/dashboard/RiskIndicators';
 import { ThroughputChart } from '../components/dashboard/ThroughputChart';
 import { Button } from '../components/common/Button';
+import { ContentSkeleton } from '../components/common/LoadingSkeletons';
+import { ErrorState } from '../components/common/ErrorState';
 
 export default function Dashboard() {
-  const { stats, getScheduledItems, items, overdueItems, atRiskItems } = useContent();
+  const { stats, getScheduledItems, items, overdueItems, atRiskItems, isLoading, error } = useContent();
   const upcomingItems = getScheduledItems().slice(0, 5);
 
   const isNewUser = stats.total === 0;
+
+  if (isLoading) {
+    return (
+      <PageContainer>
+        <PageHeader title="Dashboard" description="Your content operations overview" />
+        <ContentSkeleton variant="dashboard" />
+      </PageContainer>
+    );
+  }
+
+  if (error) {
+    return (
+      <PageContainer>
+        <PageHeader title="Dashboard" description="Your content operations overview" />
+        <ErrorState 
+          message="Failed to load content. Please try again." 
+          retry={() => window.location.reload()}
+        />
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer>

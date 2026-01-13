@@ -50,11 +50,13 @@ Input.displayName = 'Input';
 interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
   error?: string;
+  hint?: string;
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(({
   label,
   error,
+  hint,
   id,
   className = '',
   ...props
@@ -73,11 +75,17 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(({
         id={inputId}
         className={`input min-h-[120px] py-3 resize-y ${error ? 'border-danger' : ''} ${className}`}
         aria-invalid={error ? 'true' : 'false'}
+        aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
         {...props}
       />
       {error && (
-        <p className="text-sm text-danger" role="alert">
+        <p id={`${inputId}-error`} className="text-sm text-danger" role="alert">
           {error}
+        </p>
+      )}
+      {hint && !error && (
+        <p id={`${inputId}-hint`} className="text-sm text-text-muted">
+          {hint}
         </p>
       )}
     </div>
