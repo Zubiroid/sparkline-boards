@@ -6,9 +6,9 @@ import { loadSampleData } from '../../data/sampleData';
 export function OnboardingCard() {
   const { addItem, stats } = useContent();
 
-  const handleLoadSampleData = () => {
+  const handleLoadSampleData = async () => {
     if (stats.total === 0) {
-      loadSampleData(addItem);
+      await loadSampleData(addItem);
     }
   };
 

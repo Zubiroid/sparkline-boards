@@ -1,12 +1,45 @@
 import { useMemo, useCallback } from 'react';
-import { useLocalStorage } from './useLocalStorage';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { ContentItem, ContentStats, ContentStatus, ContentPlatform, ContentPriority } from '../types/content';
 
-const STORAGE_KEY = 'contentops_items';
-
-const generateId = (): string => {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-};
+// Map database row to ContentItem
+function mapDbToContentItem(row: {
+  id: string;
+  title: string;
+  description: string | null;
+  body: string | null;
+  status: string;
+  platform: string;
+  priority: string;
+  tags: string[] | null;
+  author_id: string;
+  scheduled_date: string | null;
+  deadline_date: string | null;
+  published_date: string | null;
+  created_at: string;
+  updated_at: string;
+}): ContentItem {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description || undefined,
+    content: row.body || undefined,
+    body: row.body || '',
+    status: row.status as ContentStatus,
+    platform: row.platform as ContentPlatform,
+    priority: row.priority as ContentPriority,
+    tags: row.tags || [],
+    authorId: row.author_id,
+    scheduledDate: row.scheduled_date || undefined,
+    deadlineDate: row.deadline_date || undefined,
+    publishedDate: row.published_date || undefined,
+    completedAt: row.published_date || undefined, // Use published_date as completedAt
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
 // Helper to check if an item is overdue
 const isOverdue = (item: ContentItem): boolean => {
@@ -24,8 +57,105 @@ const isAtRisk = (item: ContentItem): boolean => {
 };
 
 export function useContent() {
-  const [items, setItems] = useLocalStorage<ContentItem[]>(STORAGE_KEY, []);
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
 
+  // Fetch all content for the current user
+  const { data: items = [], isLoading, error } = useQuery({
+    queryKey: ['content', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      
+      const { data, error } = await supabase
+        .from('content')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return data.map(mapDbToContentItem);
+    },
+    enabled: !!user?.id,
+  });
+
+  // Add content mutation
+  const addMutation = useMutation({
+    mutationFn: async (data: Omit<ContentItem, 'id' | 'createdAt' | 'updatedAt'>) => {
+      if (!user?.id) throw new Error('Must be logged in to create content');
+      
+      const { data: newItem, error } = await supabase
+        .from('content')
+        .insert({
+          title: data.title,
+          description: data.description || null,
+          body: data.body || data.content || '',
+          status: data.status,
+          platform: data.platform,
+          priority: data.priority,
+          tags: data.tags,
+          author_id: user.id,
+          scheduled_date: data.scheduledDate || null,
+          deadline_date: data.deadlineDate || null,
+          published_date: data.publishedDate || null,
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return mapDbToContentItem(newItem);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['content'] });
+    },
+  });
+
+  // Update content mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, updates }: { id: string; updates: Partial<ContentItem> }) => {
+      const updateData: Record<string, unknown> = {};
+      
+      if (updates.title !== undefined) updateData.title = updates.title;
+      if (updates.description !== undefined) updateData.description = updates.description || null;
+      if (updates.body !== undefined) updateData.body = updates.body;
+      if (updates.content !== undefined) updateData.body = updates.content;
+      if (updates.status !== undefined) updateData.status = updates.status;
+      if (updates.platform !== undefined) updateData.platform = updates.platform;
+      if (updates.priority !== undefined) updateData.priority = updates.priority;
+      if (updates.tags !== undefined) updateData.tags = updates.tags;
+      if (updates.scheduledDate !== undefined) updateData.scheduled_date = updates.scheduledDate || null;
+      if (updates.deadlineDate !== undefined) updateData.deadline_date = updates.deadlineDate || null;
+      if (updates.publishedDate !== undefined) updateData.published_date = updates.publishedDate || null;
+      
+      const { data, error } = await supabase
+        .from('content')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return mapDbToContentItem(data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['content'] });
+    },
+  });
+
+  // Delete content mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('content')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['content'] });
+    },
+  });
+
+  // Calculate stats
   const stats: ContentStats = useMemo(() => ({
     ideas: items.filter(i => i.status === 'idea').length,
     drafts: items.filter(i => i.status === 'draft').length,
@@ -40,46 +170,31 @@ export function useContent() {
   const atRiskItems = useMemo(() => items.filter(isAtRisk), [items]);
 
   const addItem = useCallback((data: Omit<ContentItem, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const now = new Date().toISOString();
-    const newItem: ContentItem = {
-      ...data,
-      id: generateId(),
-      createdAt: now,
-      updatedAt: now,
-    };
-    setItems(prev => [...prev, newItem]);
-    return newItem;
-  }, [setItems]);
+    return addMutation.mutateAsync(data);
+  }, [addMutation]);
 
   const updateItem = useCallback((id: string, updates: Partial<ContentItem>) => {
-    setItems(prev => prev.map(item => 
-      item.id === id 
-        ? { ...item, ...updates, updatedAt: new Date().toISOString() }
-        : item
-    ));
-  }, [setItems]);
+    return updateMutation.mutateAsync({ id, updates });
+  }, [updateMutation]);
 
   const deleteItem = useCallback((id: string) => {
-    setItems(prev => prev.filter(item => item.id !== id));
-  }, [setItems]);
+    return deleteMutation.mutateAsync(id);
+  }, [deleteMutation]);
 
   const moveItem = useCallback((id: string, newStatus: ContentStatus) => {
-    setItems(prev => prev.map(item => {
-      if (item.id !== id) return item;
-      
-      const updates: Partial<ContentItem> = {
-        status: newStatus,
-        updatedAt: new Date().toISOString(),
-      };
+    const item = items.find(i => i.id === id);
+    if (!item) return;
 
-      if (newStatus === 'published' && !item.publishedDate) {
-        updates.publishedDate = new Date().toISOString();
-        updates.completedAt = new Date().toISOString();
-      }
+    const updates: Partial<ContentItem> = {
+      status: newStatus,
+    };
 
-      return { ...item, ...updates };
-    }));
-  }, [setItems]);
+    if (newStatus === 'published' && !item.publishedDate) {
+      updates.publishedDate = new Date().toISOString();
+    }
+
+    return updateMutation.mutateAsync({ id, updates });
+  }, [items, updateMutation]);
 
   const getItemsByStatus = useCallback((status: ContentStatus) => {
     return items.filter(item => item.status === status);
@@ -155,5 +270,10 @@ export function useContent() {
     getAllTags,
     canMoveToStatus,
     getCompletionTimeStats,
+    isLoading,
+    error,
+    isAddingItem: addMutation.isPending,
+    isUpdatingItem: updateMutation.isPending,
+    isDeletingItem: deleteMutation.isPending,
   };
 }
