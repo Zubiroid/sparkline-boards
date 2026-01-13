@@ -44,9 +44,9 @@ export default function KanbanBoard() {
     setDragOverColumn(status);
   };
 
-  const handleDrop = (status: ContentStatus) => {
+  const handleDrop = async (status: ContentStatus) => {
     if (draggedItemId) {
-      moveItem(draggedItemId, status);
+      await moveItem(draggedItemId, status);
     }
     setDraggedItemId(null);
     setDragOverColumn(null);

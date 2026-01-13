@@ -115,6 +115,8 @@ export const sampleContentItems: Omit<ContentItem, 'id' | 'createdAt' | 'updated
   },
 ];
 
-export function loadSampleData(addItem: (data: Omit<ContentItem, 'id' | 'createdAt' | 'updatedAt'>) => ContentItem): void {
-  sampleContentItems.forEach(item => addItem(item));
+export async function loadSampleData(addItem: (data: Omit<ContentItem, 'id' | 'createdAt' | 'updatedAt'>) => Promise<ContentItem>): Promise<void> {
+  for (const item of sampleContentItems) {
+    await addItem(item);
+  }
 }

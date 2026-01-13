@@ -129,9 +129,6 @@ export default function Editor() {
     }
 
     setSaveStatus('saving');
-    
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 300));
 
     const itemData = {
       title: title.trim(),
@@ -151,9 +148,9 @@ export default function Editor() {
 
     try {
       if (isEditing && id) {
-        updateItem(id, itemData);
+        await updateItem(id, itemData);
       } else {
-        const newItem = addItem(itemData);
+        const newItem = await addItem(itemData);
         navigate(`/editor/${newItem.id}`, { replace: true });
       }
 
@@ -180,9 +177,9 @@ export default function Editor() {
     }
   }, [title, description, content, status, platform, priority, tags, scheduledDate, deadlineDate, isEditing, id, existingItem, updateItem, addItem, navigate, toast]);
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (id) {
-      deleteItem(id);
+      await deleteItem(id);
       toast.success('Content deleted', 'The content item has been removed');
       navigate('/board');
     }
