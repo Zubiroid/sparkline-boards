@@ -184,14 +184,22 @@ export function AuthProvider({ children }) {
 
   const isAdmin = hasRole('admin');
   const isModerator = hasRole('moderator');
+  const userRole = roles[0] || 'user';
 
   const clearError = () => setError(null);
+
+  const refreshProfile = async () => {
+    if (user) {
+      await fetchUserData(user.id);
+    }
+  };
 
   const value = {
     user,
     session,
     profile,
     roles,
+    userRole,
     isLoading,
     error,
     isAuthenticated: !!user,
@@ -202,6 +210,7 @@ export function AuthProvider({ children }) {
     signOut,
     resetPassword,
     updateProfile,
+    refreshProfile,
     hasRole,
     isAdmin,
     isModerator,
